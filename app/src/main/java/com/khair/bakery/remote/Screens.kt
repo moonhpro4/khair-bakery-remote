@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -211,7 +212,7 @@ fun MainShell(openRequest: MutableState<Pair<String, String>?>) {
                 }
                 s is Screen.Shifts -> TitledPage("الورديات") { ShiftsScreen(shop) }
                 s is Screen.Archive -> TitledPage("التقارير المؤرشفة") { ArchiveScreen(shop) }
-                s is Screen.EditCats -> TitledPage("تعديل أسماء الأصناف") { EditCatsScreen(shop) }
+                s is Screen.EditCats -> TitledPage("تعديل أسماء الأصناف") { EditCatsScreen(shop, bill) }
             }
         }
     }
@@ -555,11 +556,12 @@ fun ArchiveScreen(shop: Shop) {
 
 // ============================================================================ edit category names / add one
 @Composable
-fun EditCatsScreen(shop: Shop) {
+fun EditCatsScreen(shop: Shop, bill: SnapshotStateMap<String, Int>) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var version by remember { mutableStateOf(0) }
     var dialog by remember { mutableStateOf<Pair<Int?, String>?>(null) }
+    var toDelete by remember { mutableStateOf<Pair<Int, String>?>(null) }
     key(version) {
         Loader(load = { Hub.request(shop, "state.get") }) { d ->
             val cats = d.getJSONArray("categories").objects()
@@ -570,10 +572,39 @@ fun EditCatsScreen(shop: Shop) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(c.optString("name"), fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         OutlinedButton(onClick = { dialog = Pair(c.optInt("id"), c.optString("name")) }) { Text("✏️ تعديل الاسم") }
+                        Spacer(Modifier.width(6.dp))
+                        OutlinedButton(
+                            onClick = { toDelete = Pair(c.optInt("id"), c.optString("name")) },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = RedBtn)
+                        ) { Text("🗑️ حذف") }
                     }
                 }
             }
         }
+    }
+    val del = toDelete
+    if (del != null) {
+        AlertDialog(
+            onDismissRequest = { toDelete = null },
+            title = { Text("حذف الصنف") },
+            text = { Text("هل تريد حذف \"${del.second}\" من الكمبيوتر؟ لا يمكن التراجع عن هذا.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        try {
+                            Hub.request(shop, "category.delete", JSONObject().put("id", del.first).put("name", del.second))
+                            bill.remove(del.second)
+                            Toast.makeText(ctx, "تم الحذف من الكمبيوتر", Toast.LENGTH_SHORT).show()
+                            toDelete = null
+                            version++
+                        } catch (e: RemoteError) {
+                            Toast.makeText(ctx, e.message ?: "حدث خطأ", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }) { Text("حذف", color = RedBtn) }
+            },
+            dismissButton = { TextButton(onClick = { toDelete = null }) { Text("إلغاء") } }
+        )
     }
     val dlg = dialog
     if (dlg != null) {
