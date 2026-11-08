@@ -12,7 +12,7 @@ class RevokedException : Exception("revoked")
 
 /** Talks to the message relay over HTTPS. The phone's own code (m_...) is the bearer token. */
 object Relay {
-    const val API = "https://9f9efa9f-a27b-4bd4-a503-02ea9ba910d5.lovableproject.com/api/public/anything"
+    const val API = "https://lockable-bridge-api.lovable.app/api/public/anything"
 
     private suspend fun call(code: String, query: String, body: JSONObject?): JSONObject =
         withContext(Dispatchers.IO) {
