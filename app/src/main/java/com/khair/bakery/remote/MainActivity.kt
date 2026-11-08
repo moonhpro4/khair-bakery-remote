@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
     private fun readIntent(i: Intent?) {
         val shop = i?.getStringExtra("open_shop")
         val screen = i?.getStringExtra("open_screen")
-        if (shop != null && screen != null) openRequest.value = Pair(shop, screen)
+        val reportId = i?.getStringExtra("open_id")
+        if (shop != null && screen != null) openRequest.value = Pair(shop, if (reportId != null) "$screen:$reportId" else screen)
     }
 }

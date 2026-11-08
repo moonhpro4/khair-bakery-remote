@@ -27,6 +27,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import android.graphics.BitmapFactory
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -86,6 +91,7 @@ sealed class Screen {
     data class Shifts(val shopId: String) : Screen()
     data class Archive(val shopId: String) : Screen()
     data class EditCats(val shopId: String) : Screen()
+    data class ZImage(val shopId: String, val id: String) : Screen()
 }
 
 sealed class LoadState<out T> {
@@ -143,12 +149,16 @@ fun MainShell(openRequest: MutableState<Pair<String, String>?>) {
     val req = openRequest.value
     LaunchedEffect(req) {
         if (req != null) {
-            screen = if (req.second == "shifts") Screen.Shifts(req.first) else Screen.Home(req.first)
+            screen = when {
+                req.second == "shifts" -> Screen.Shifts(req.first)
+                req.second.startsWith("zimage:") -> Screen.ZImage(req.first, req.second.removePrefix("zimage:"))
+                else -> Screen.Home(req.first)
+            }
             openRequest.value = null
         }
     }
 
-    BackHandler(enabled = screen !is Screen.Shops && screen !is Screen.Me && screen !is Screen.AddComputer) {
+    fun goBack() {
         val s = screen
         screen = when (s) {
             is Screen.Pay -> Screen.Home(s.shopId)
@@ -157,9 +167,11 @@ fun MainShell(openRequest: MutableState<Pair<String, String>?>) {
             is Screen.Shifts -> Screen.Home(s.shopId)
             is Screen.Archive -> Screen.Home(s.shopId)
             is Screen.EditCats -> Screen.Home(s.shopId)
+            is Screen.ZImage -> Screen.Home(s.shopId)
             else -> Screen.Shops
         }
     }
+    BackHandler(enabled = screen !is Screen.Shops && screen !is Screen.Me && screen !is Screen.AddComputer) { goBack() }
 
     Scaffold(
         containerColor = Color.White,
@@ -190,8 +202,13 @@ fun MainShell(openRequest: MutableState<Pair<String, String>?>) {
                 is Screen.Shifts -> Hub.shop(s.shopId)
                 is Screen.Archive -> Hub.shop(s.shopId)
                 is Screen.EditCats -> Hub.shop(s.shopId)
+                is Screen.ZImage -> Hub.shop(s.shopId)
                 else -> null
             }
+            val showBack = s !is Screen.Shops && s !is Screen.Me && s !is Screen.AddComputer && shop != null
+            Column(Modifier.fillMaxSize()) {
+            if (showBack) BackBar { goBack() }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
                 s is Screen.Shops -> ShopsScreen(
                     shops,
@@ -213,6 +230,9 @@ fun MainShell(openRequest: MutableState<Pair<String, String>?>) {
                 s is Screen.Shifts -> TitledPage("الورديات") { ShiftsScreen(shop) }
                 s is Screen.Archive -> TitledPage("التقارير المؤرشفة") { ArchiveScreen(shop) }
                 s is Screen.EditCats -> TitledPage("تعديل أسماء الأصناف") { EditCatsScreen(shop, bill) }
+                s is Screen.ZImage -> TitledPage("التقرير المطبوع") { ZImageScreen(shop, s.id) }
+            }
+            }
             }
         }
     }
@@ -228,6 +248,13 @@ fun Pill(text: String, modifier: Modifier = Modifier, color: Color = Ink, onClic
         colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White)
     ) {
         Text(text, fontSize = 17.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
+fun BackBar(onBack: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = onBack) { Text("→ رجوع", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -360,6 +387,8 @@ fun ShopHome(shop: Shop, bill: SnapshotStateMap<String, Int>, go: (Screen) -> Un
             Pill("عرض تقرير اليوم (Z)", Modifier.weight(1f)) { go(Screen.ZReport(shop.id)) }
             Pill("عرض الورديات", Modifier.weight(1.3f)) { go(Screen.Shifts(shop.id)) }
         }
+        Spacer(Modifier.height(10.dp))
+        Pill("🧾 آخر تقرير مطبوع (نهاية الاستراحة)", Modifier.fillMaxWidth()) { go(Screen.ZImage(shop.id, "")) }
         Spacer(Modifier.height(16.dp))
         if (err != null) {
             Text(err ?: "", color = RedBtn, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
@@ -632,6 +661,37 @@ fun EditCatsScreen(shop: Shop, bill: SnapshotStateMap<String, Int>) {
             },
             dismissButton = { TextButton(onClick = { dialog = null }) { Text("إلغاء") } }
         )
+    }
+}
+
+// ============================================================================ the printed End-of-Break report (picture)
+@Composable
+fun ZImageScreen(shop: Shop, id: String) {
+    val ctx = LocalContext.current
+    val file = remember(shop.id, id) { if (id.isEmpty()) ZReports.latest(ctx, shop.id) else ZReports.find(ctx, shop.id, id) }
+    val bmp = remember(file) { file?.let { BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() } }
+    var zoom by remember { mutableStateOf(1f) }
+    if (bmp == null) {
+        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Text(
+                "لا يوجد تقرير مطبوع بعد. سيصل هنا تلقائيًا عند إنهاء الاستراحة على الكمبيوتر.",
+                textAlign = TextAlign.Center, fontSize = 16.sp
+            )
+        }
+    } else {
+        val screenW = LocalConfiguration.current.screenWidthDp.dp
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { zoom = (zoom + 0.5f).coerceAtMost(3f) }) { Text("➕ تكبير") }
+                OutlinedButton(onClick = { zoom = (zoom - 0.5f).coerceAtLeast(1f) }) { Text("➖ تصغير") }
+            }
+            Box(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState())) {
+                Image(
+                    bitmap = bmp, contentDescription = "التقرير المطبوع", contentScale = ContentScale.FillWidth,
+                    modifier = Modifier.width(screenW * zoom)
+                )
+            }
+        }
     }
 }
 

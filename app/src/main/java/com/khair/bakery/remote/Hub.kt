@@ -135,6 +135,17 @@ object Hub {
             "reply" -> if (p.optString("device_id") == shop.deviceId) {
                 pending.remove(p.optString("re"))?.complete(p)
             }
+            "zreport.chunk" -> runCatching {
+                val reportId = ZReports.addChunk(app, shop, p)
+                if (reportId != null && shop.notify) {
+                    Notifier.zreport(
+                        app, shop,
+                        p.optString("title").ifBlank { "تقرير Z" },
+                        p.optString("text").ifBlank { "تم إنهاء الاستراحة — اضغط لعرض صورة التقرير المطبوع" },
+                        reportId
+                    )
+                }
+            }
             "shift.event" -> if (shop.notify) {
                 Notifier.shift(app, shop, p.optString("title"), p.optString("text"))
             }
