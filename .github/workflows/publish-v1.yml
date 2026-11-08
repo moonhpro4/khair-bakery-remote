@@ -1,0 +1,16 @@
+name: publish-v1
+on:
+  push:
+    branches: [publish-v1]
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Copy the fixed APK from v2 into v1
+        run: |
+          gh release download v2 -R "$GITHUB_REPOSITORY" -p khair-bakery-remote.apk
+          gh release upload v1 khair-bakery-remote.apk -R "$GITHUB_REPOSITORY" --clobber
