@@ -1,6 +1,7 @@
 package com.khair.bakery.remote
 
 import android.content.Context
+import android.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
@@ -173,6 +175,50 @@ object Hub {
         } finally {
             pending.remove(rid)
         }
+    }
+
+    /**
+     * PIN-only pairing: searches the directory channel for the offer the computer made for this PIN, opens it
+     * (that gives the shop's private phone code) and connects. Nothing but the PIN is typed.
+     */
+    suspend fun pairByPin(pin: String, deviceName: String): Shop {
+        if (DirConfig.MCODE.isBlank()) throw RemoteError("هذا الإصدار من التطبيق غير مهيأ للبحث التلقائي. استخدم الإدخال اليدوي.")
+        val deadline = System.currentTimeMillis() + 90000L
+        var cursor = "0"
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                val data = Relay.fetch(DirConfig.MCODE, cursor)
+                val msgs = data.optJSONArray("messages") ?: JSONArray()
+                for (i in 0 until msgs.length()) {
+                    val m = msgs.getJSONObject(i)
+                    cursor = m.opt("seq")?.toString() ?: cursor
+                    if (m.optString("type") != "pair.offer") continue
+                    val p = m.optJSONObject("payload") ?: continue
+                    val age = Math.abs(System.currentTimeMillis() / 1000L - p.optLong("ts", 0L))
+                    if (age > 900L) continue                              // only offers made in the last 15 minutes
+                    val offer = withContext(Dispatchers.Default) {
+                        OfferCrypto.open(
+                            pin,
+                            Base64.decode(p.getString("salt"), Base64.DEFAULT),
+                            Base64.decode(p.getString("nonce"), Base64.DEFAULT),
+                            Base64.decode(p.getString("ct"), Base64.DEFAULT),
+                            Base64.decode(p.getString("tag"), Base64.DEFAULT)
+                        )
+                    } ?: continue
+                    return pair(offer.mcode, pin, deviceName)
+                }
+            } catch (e: RemoteError) {
+                throw e
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RevokedException) {
+                throw RemoteError("رمز البحث غير صالح. استخدم الإدخال اليدوي.")
+            } catch (e: Exception) {
+                // network hiccup: keep searching until the deadline
+            }
+            delay(1000)
+        }
+        throw RemoteError("لم يتم العثور على الكمبيوتر. تأكد من الرقم (صالح لدقيقتين) وأن برنامج الكاشير مفتوح ومتصل بالإنترنت.")
     }
 
     /** Pairs this phone with a computer using its connection code and the PIN shown on the computer. */

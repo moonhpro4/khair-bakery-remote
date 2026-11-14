@@ -700,6 +700,7 @@ fun ZImageScreen(shop: Shop, id: String) {
 fun AddComputerScreen(onDone: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    var manual by remember { mutableStateOf(false) }
     var code by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("هاتفي") }
@@ -709,33 +710,43 @@ fun AddComputerScreen(onDone: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("إضافة كمبيوتر", fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
         Text(
-            "على الكمبيوتر اضغط  Ctrl + Alt + P  لفتح شاشة الربط السرية، ثم انسخ رمز الهاتف والرقم السري (PIN) المعروضين هناك.",
+            "على الكمبيوتر اضغط  Ctrl + Alt + P  ثم «إنشاء رمز جديد»، واكتب الرقم هنا فقط. سيبحث التطبيق عن الكمبيوتر ويتصل تلقائيًا.",
             fontSize = 14.sp, color = Color.DarkGray
         )
+        if (manual) {
+            OutlinedTextField(
+                value = code, onValueChange = { code = it.trim() }, label = { Text("رمز الاتصال (يبدأ بـ m_)") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy
+            )
+        }
         OutlinedTextField(
-            value = code, onValueChange = { code = it.trim() }, label = { Text("رمز الاتصال (يبدأ بـ m_)") },
-            singleLine = true, modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = pin, onValueChange = { pin = it.filter { c -> c.isDigit() }.take(6) }, label = { Text("الرقم السري (6 أرقام)") },
-            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth()
+            value = pin, onValueChange = { pin = it.filter { c -> c.isDigit() }.take(8) }, label = { Text("الرقم (8 أرقام)") },
+            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(), enabled = !busy
         )
         OutlinedTextField(
             value = name, onValueChange = { name = it.take(30) }, label = { Text("اسم هذا الهاتف") },
-            singleLine = true, modifier = Modifier.fillMaxWidth()
+            singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !busy
         )
+        if (busy && !manual) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 3.dp)
+                Text("جاري البحث عن الكمبيوتر…", fontWeight = FontWeight.Bold)
+            }
+        }
         if (error != null) Text(error ?: "", color = RedBtn, fontWeight = FontWeight.Bold)
-        Pill(if (busy) "جاري الربط..." else "ربط", Modifier.fillMaxWidth(), GreenBtn) {
+        Pill(if (busy) (if (manual) "جاري الربط..." else "جاري البحث...") else "ربط", Modifier.fillMaxWidth(), GreenBtn) {
             if (busy) return@Pill
-            if (!code.startsWith("m_") || pin.length != 6 || name.isBlank()) {
-                error = "تأكد من الرمز (يبدأ بـ m_) والرقم السري (6 أرقام) واسم الهاتف"
+            val pinOk = pin.length in 6..8
+            if (name.isBlank() || !pinOk || (manual && !code.startsWith("m_"))) {
+                error = if (manual) "تأكد من الرمز (يبدأ بـ m_) والرقم واسم الهاتف" else "اكتب الرقم المكوّن من 8 أرقام"
                 return@Pill
             }
             error = null
             busy = true
             scope.launch {
                 try {
-                    val shop = Hub.pair(code, pin, name.trim())
+                    val shop = if (manual) Hub.pair(code, pin, name.trim()) else Hub.pairByPin(pin, name.trim())
                     Hub.addShop(shop)
                     Toast.makeText(ctx, "تم ربط «${shop.name}»", Toast.LENGTH_LONG).show()
                     code = ""
@@ -747,6 +758,9 @@ fun AddComputerScreen(onDone: () -> Unit) {
                     busy = false
                 }
             }
+        }
+        TextButton(onClick = { manual = !manual; error = null }, enabled = !busy) {
+            Text(if (manual) "← الرجوع إلى الربط التلقائي بالرقم فقط" else "إدخال يدوي (لدي رمز الاتصال m_)")
         }
     }
 }

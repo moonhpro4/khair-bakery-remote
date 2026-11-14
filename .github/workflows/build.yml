@@ -17,11 +17,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
+      - name: Put the directory code (a secret) into the app
+        env:
+          DIR_MCODE: ${{ secrets.DIR_MCODE }}
+        run: |
+          printf 'package com.khair.bakery.remote\n\nobject DirConfig {\n    const val MCODE = "%s"\n}\n' "$DIR_MCODE" > app/src/main/java/com/khair/bakery/remote/DirConfig.kt
       - name: Build debug APK
         id: build
         run: |
           set +e
-          gradle --no-daemon --stacktrace assembleDebug 2>&1 | tee /tmp/build.log
+          gradle --no-daemon --stacktrace testDebugUnitTest assembleDebug 2>&1 | tee /tmp/build.log
           echo "code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
       - name: Publish the build log on failure (so it can be read and fixed)
         if: steps.build.outputs.code != '0'
